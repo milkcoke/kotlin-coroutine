@@ -1,5 +1,7 @@
 package coroutine.job
 
+import coroutine.support.Timer
+import coroutine.support.Timer.Companion.getElapsedTime
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelAndJoin
@@ -46,9 +48,7 @@ internal class JobTest {
     }
   }
 
-  fun getElapsedTime(startTime: Long): String {
-    return "[Elapsed time: ${System.currentTimeMillis() - startTime} ms]"
-  }
+
 
   @DisplayName("Lazy starting")
   @Test

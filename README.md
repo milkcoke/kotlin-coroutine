@@ -202,3 +202,186 @@ val myJob = Job()
 val context = coroutineName + myJob
 val newContext = context.minusKey(Job)
 ```
+
+
+## (5) 구조화된 동시성
+구조화된 동시성(Structured Concurrency) 원칙은 비동기 작업을 구조화하여 비동기 코드를 보다 안정적이고 예측하게 만드는 원칙이다. \
+코루틴은 부모-자식 관계로 구조화한다. 
+
+코루틴 빌더함수 내에서 빌더함수를 호출하면 부모 - 자식 관계가 형성된다. 
+```kotlin
+runBlocking {
+  // 부모 코루틴
+  luanch {
+    // 자식 코루틴
+  }
+}
+```
+
+구조화된 코루틴은 여러 특징을 갖는데 대표적인 특징은 다음과 같다.
+
+- 부모 코루틴의 실행 환경이 자식 코루틴에게 상속된다.
+- 부모 코루틴이 취소되면 자식도 취소된다.
+- 부모 코루틴은 자식 코루틴이 완료될 때까지 대기한다.
+- `CoroutineScope`을 사용해 코루틴 실행 범위를 제한할 수 있다.
+
+#### CoroutineContext 상속
+```kotlin
+  fun parentChildSameContext(): Unit = runBlocking {
+    val coroutineContext = newSingleThreadContext("MyThread") + CoroutineName("MyCoroutine")
+    launch(coroutineContext) {
+      assertThat(Thread.currentThread().name).contains("MyThread")
+      launch {
+        assertThat(Thread.currentThread().name).contains("MyThread")
+      }
+    }
+  }
+```
+`MyThread` 스레드에서 부모 코루틴이 실행되고, 자식 코루틴도 동일한 스레드에서 실행된다. 
+
+여러 요소 중 `Job` 만큼은 그대로 상속되지 않는다. \
+대신, 부모 자식 관계를 생성한다.
+
+```kotlin
+  fun parentChildPropertiesTest(): Unit = runBlocking {
+    val parentJob = coroutineContext[Job]
+    launch {
+      val childJob = coroutineContext[Job]
+      assertThat(childJob).isNotEqualTo(parentJob)
+      assertThat(childJob!!.parent).isSameAs(parentJob)
+      assertThat(parentJob!!.children.contains(childJob)).isTrue
+    }
+  }
+```
+
+#### Cancel Propagation
+부모 코루틴 (Job)을 취소하면 자식 코루틴도 모두 취소가 전파된다.
+![Cancel Propagation](./assets/CancelPropagation.png)
+
+Job 뿐만 아니라 CoroutineScope 도 `cancel()` API 를 제공한다.
+
+```kotlin
+  fun coroutineCancellationTest(): Unit = runBlocking {
+    launch(CoroutineName("ParentCoroutine")) {
+      launch(CoroutineName("ChildCoroutine1")) {
+        delay(100L)
+        println("${Thread.currentThread().name} 실행")
+      }
+      launch(CoroutineName("ChildCoroutine2")) {
+        delay(100L)
+        println("${Thread.currentThread().name} 실행")
+      }
+      this.cancel()
+    }
+
+    launch(CoroutineName("ParentCoroutine2")) {
+      delay(100L)
+      println("${Thread.currentThread().name} 실행")
+    }
+  }
+```
+
+실행 결과
+```text
+main @ParentCoroutine2#3 실행
+```
+
+ParentCoroutine, ChildCoroutine1,2 는 모두 취소되었다.
+
+`CoroutineScope.cancel` 을 살펴보자
+```kotlin
+public fun CoroutineScope.cancel(cause: CancellationException? = null) {
+    val job = coroutineContext[Job] ?: error("Scope cannot be cancelled because it does not have a job: $this")
+    job.cancel(cause)
+}
+```
+
+CoroutineScope 객체에 cancel 함수 호출시 CoroutineScope 객체는 자신의 `coroutineContext` 프로퍼티를 통해 \
+Job 객체에 접근하여 `cancel()` 함수를 호출한다.
+
+## (6) CoroutineScope
+CoroutineScope 객체는 자신의 범위 내 생성된 코루틴에게 실행 환경을 제공하고, 실행 범위를 관리하는 역할을 한다.
+```kotlin
+interface CoroutineScope {
+  val coroutineContext: CoroutineContext
+}
+```
+
+## (7) runBlocking vs launch
+`runBlocking` 함수는 코루틴을 실행시키고 해당 코루틴을 호출한 스레드를 차단한다. \ 
+`runBlocking {}` 내에서 부모/자식 코루틴만 실행 가능한 상태가 된다.
+
+```kotlin
+  fun runBlockingTest() = runBlocking {
+    val startTime = System.currentTimeMillis()
+    runBlocking {
+      delay(1000L)
+      println("${Timer.getElapsedTime(startTime)}, ${Thread.currentThread().name} 하위 코루틴 종료") // 1
+    }
+    println("${Thread.currentThread().name} 실행 완료") // 2
+  }
+```
+
+실행 결과
+```text
+[Elapsed time: 1012 ms], main @coroutine#2 하위 코루틴 종료
+main @coroutine#1 실행 완료
+```
+
+`launch` 함수도 코루틴을 실행시키지만 해당 코루틴을 호출한 스레드를 차단하지 않는다.
+```kotlin
+  fun launchTest() = runBlocking {
+    val startTime = System.currentTimeMillis()
+    launch {
+      delay(1000L)
+      println("${Timer.getElapsedTime(startTime)}, ${Thread.currentThread().name} 하위 코루틴 종료") // 2
+    }
+    println("${Thread.currentThread().name} 실행 완료") // 1
+  }
+```
+
+실행 결과 
+```text
+main @coroutine#1 실행 완료
+[Elapsed time: 1006 ms], main @coroutine#2 하위 코루틴 종료
+```
+
+## (8) Job 상태
+![Job State](./assets/JobState.png)
+
+- New: 코루틴이 생성된 상태
+- Active: 코루틴 실행중 상태
+- Completing: 부모 코루틴 실행이 완료되고 자식 코루틴의 완료를 기다리는 상태.
+- Cancelling: 취소중 상태
+- Cancelled: 취소가 완료된 상태
+
+Job, Deferred 모두 상태를 체크할 수 있는 메소드 `isActive`, `isCompleted`, `isCancelled` 가 제공된다.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
