@@ -155,4 +155,50 @@ cancel() API 는 비동기적으로 동작한다. \
 따라서, `cancel()` 호출 직후 다른 코루틴이 실행될때, 순서가 보장되지 않는다. \
 **완벽히 대상 코루틴이 '취소됨'을 보장하고 싶을 때 `cancelAndJoin()` 을 사용한다.**
 
+## (3) async/await
 
+
+## (4) CoroutineContext
+CoroutineContext 는 코루틴의 동작 방식을 정의하는 요소들의 집합이다. \
+CoroutineContext 는 여러 요소(Element)로 구성되며, 각 요소는 코루틴의 특정 속성이나 동작 방식을 정의한다.
+
+실질적으로 쓰이는 요소는 다음 4가지다.
+1. CoroutineName: 코루틴의 이름 설정
+2. CoroutineDispatcher: 코루틴을 스레드에 할당하여 실행
+3. Job: 코루틴의 추상체로 코루틴 조작 지원
+4. CoroutineExceptionHandler: 코루틴에서 발생한 예외 처리
+
+#### CoroutineContext 생성
+`+` 연산자로 여러 요소를 조합하여 CoroutineContext 를 생성할 수 있다.
+```kotlin
+val coroutineContext: CoroutineContext = Dispatchers.IO + CoroutineName("MyCoroutine")
+```
+
+#### CoroutineContext 접근
+`[]` 연산자를 사용하여 특정 요소에 접근할 수 있다.
+```kotlin
+coroutineContext[CoroutineName]
+```
+
+#### CoroutineContext 조합
+둘 이상의 CoroutineContext 를 합칠 경우 나중에 온 요소가 기존 요소를 덮어쓴다.
+```kotlin
+  fun overwriteTest() {
+    // given
+    val coroutineContext = CoroutineName("MyCoroutine")
+    val newCoroutineContext = coroutineContext + CoroutineName("NewCoroutine")
+    // when then
+    assertThat(coroutineContext[CoroutineName]).isEqualTo(CoroutineName("MyCoroutine"))
+    assertThat(newCoroutineContext[CoroutineName]).isEqualTo(CoroutineName("NewCoroutine"))
+  }
+```
+
+#### CoroutineContext 요소 제거
+`minusKey` 연산자를 사용하여 특정 요소를 제거할 수 있다.
+
+```kotlin
+val coroutineName = CoroutineName("MyCoroutine")
+val myJob = Job()
+val context = coroutineName + myJob
+val newContext = context.minusKey(Job)
+```
