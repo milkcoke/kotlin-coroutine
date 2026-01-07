@@ -358,17 +358,154 @@ main @coroutine#1 실행 완료
 Job, Deferred 모두 상태를 체크할 수 있는 메소드 `isActive`, `isCompleted`, `isCancelled` 가 제공된다.
 
 
+## (9) 예외 처리
+코루틴은 주로 입출력 IO 작업에 자주 사용되므로 예측할 수 없는 예외상황이 잦다.
+코루틴이 예외를 전파하는 방식과 이를 제한하고 처리하는 방법을 알아보자.
 
 
+#### 자식의 예외는 부모로 전파된다.
+코루틴 예외 발생시 해당 코루틴은 취소되며 부모로 예외가 전파된다. \
+부모 또한 별도 예외처리 로직이 없는한, 코루틴이 취소되며 취소는 자식으로 전파된다.
+```kotlin
+fun exceptionTest() = runBlocking{
+  launch(CoroutineName("Coroutine1")) {
+    launch(CoroutineName("Coroutine3")) {
+      throw RuntimeException("Exception")
+    }
+    delay(100L)
+    println("${Thread.currentThread().name} 실행")
+  }
+
+  launch(CoroutineName("Coroutine2")) {
+    delay(100L)
+    println("${Thread.currentThread().name} 실행")
+  }
+
+  delay(1000L)
+}
+```
+
+실행 결과
+```text
+java.lang.RuntimeException: Exception
+```
+
+![Exception Propagation](./assets/CoroutineException_Propagation.png)
+
+#### (1) SupervisorJob 예외 전파 제한
+`SupervisorJob` 이라는 객체를 사용하면 부모가 자식으로부터 예외를 전달받아도 더 이상 예외를 전파하지 않는다.
+
+![Supervisor prevents exception propagation](./assets/supervisor_1.png)
+
+```kotlin
+fun supervisorJobTest() = runBlocking {
+  val supervisorJob = SupervisorJob()
+  launch(CoroutineName("Coroutine1") + supervisorJob) {
+    launch(CoroutineName("Coroutine3")) {
+      throw RuntimeException("Exception")
+    }
+
+    delay(100L)
+    println("${Thread.currentThread().name} 실행")
+  }
+  launch(CoroutineName("Coroutine2") + supervisorJob) {
+    delay(100L)
+    println("${Thread.currentThread().name} 실행")
+  }
+  
+  delay(400L)
+}
+```
+
+#### (2) CoroutineScope + SupervisorJob 예외 전파 제한
+```kotlin
+fun coroutineScopeSupervisorJob() = runBLocking {
+  val coroutineScope = CoroutineScope(SupervisorJob())
+  coroutineScope.apply {
+    launch(CoroutineName("Coroutine1")) {
+      launch(CoroutineName("Coroutine3")) {
+        throw RuntimException("예외 발생")
+      }
+      
+      delay(100L)
+    }
+    
+    launch(CoroutineName("Coroutine2")) {
+      delay(100L)
+      println("${Thread.currentThread().name} 실행")
+    }
+  }
+}
+```
+
+Coroutine3 에서 발생한 예외가 1까지는 전파되지만 그 상위인 SupervisorJob 까지는 전파되지 않는다. \
+따라서 Coroutine2 는 정상 실행된다.
+```text
+Coroutine2#4 실행
+```
+
+#### (3) ✅ SupervisorScope 예외 전파 제한
+supervisorScope 을 사용하면 아주 간결한 문법으로 다음 효과를 얻는다.
+- SupervisorJob 을 가진 CoroutineScope 객체를 생성한다.
+- supervisorScope 함수로 생성한 SupervisorJob 객체는 supervisorScope 함수를 호출한 코루틴을 부모로 갖는다.
+- supervisorScope 함수로 생성한 SupervisorJob 객체는 자식 코루틴 완료시 자동 완료된다.
+
+-> 복잡한 설정 없이 Job Hierarchy 를 유지하고 예외 전파를 제한할 수 있다.
 
 
+```kotlin
+  fun supervisorScopeTest(): Unit = runBlocking {
+    supervisorScope {
+      launch(CoroutineName("Coroutine1")) {
+        launch(CoroutineName("Coroutine3")) {
+          throw RuntimeException("Exception")
+        }
+
+        delay(100L)
+        println("${Thread.currentThread().name} 실행")
+      }
+
+      launch(CoroutineName("Coroutine2")) {
+        delay(100L)
+        println("${Thread.currentThread().name} 실행")
+      }
+    }
+  }
+```
 
 
+> Spring / Ktor 에서 supervisorScope 을 기본으로 사용한다.
 
+#### (4) 흔히 하는 실수
 
+> ⚠️ `launch()` 함수 인자에 Job 객체를 입력할 경우 해당 Job 객체를 부모로하는 새로운 Job 객체를 만든다.
 
+```kotlin
+  fun misLeadingSupervisorJobTest() = runBlocking {
+    launch(CoroutineName("Parent Coroutine") + SupervisorJob()) {
+      launch(CoroutineName("Coroutine1")) {
+        launch(CoroutineName("Coroutine3")) {
+          throw RuntimeException("Exception")
+        }
 
+        delay(100L)
+        println("${Thread.currentThread().name} 실행")
+      }
 
+      launch(CoroutineName("Coroutine2")) {
+        delay(100L)
+        println("${Thread.currentThread().name} 실행")
+      }
+    }
+    delay(400L)
+  }
+```
+
+![misleading SupervisorJob](./assets/supervisor_missleading.png)
+
+SupervisorJob 을 부모로 하는 Job 을 새로 생성한다. 
+SupervisorJob -> ParentCoroutine Job-> Coroutine1 Job -> Coroutine3 Job 이된다.
+따라서 Coroutine3 의 에러가 ParentCoroutine 까지 전파된다.
 
 
 
