@@ -507,11 +507,71 @@ SupervisorJob 을 부모로 하는 Job 을 새로 생성한다.
 SupervisorJob -> ParentCoroutine Job-> Coroutine1 Job -> Coroutine3 Job 이된다.
 따라서 Coroutine3 의 에러가 ParentCoroutine 까지 전파된다.
 
+#### async 또한 catch 로 감싸지 않으면 부모로 예외가 전파된다.
+```kotlin
+  fun notAwaitExceptionPropagationTest(): Unit = runBlocking {
+    // should catch this since exception is to be propagated.
+    val deferred = async(CoroutineName("Coroutine1")) {
+      throw RuntimeException("Exception in coroutine1")
+    }
+
+    launch(CoroutineName("Coroutine2")) {
+      delay(100L) 
+      println("Coroutine2 is executed") 
+    }
+  }
+```
+
+실행 결과
+```txt
+java.lang.RuntimeException: Exception in coroutine1
+```
+
+Coroutine1에 대한 `await()`을 호출하지 않아도 exception 이 부모 코루틴으로 전파되기 때문에, \
+Coroutine2 또한 실행되지 않는다.
+
+#### 개선버전: `supervisorScope` 적용
+```kotlin
+  fun supervisorScopeTest(): Unit = runBlocking {
+    supervisorScope {
+      val deferred = async(CoroutineName("Coroutine1")) {
+        throw RuntimeException("Exception in coroutine1")
+      }
+
+      val result = withContext(CoroutineName("Coroutine2")) {
+        delay(100L)
+        return@withContext 5
+      }
+
+      assertThat(result).isEqualTo(5)
+    }
+  }
+```
+`Coroutine1` 의 예외가 supervisorScope 에 전파되지 않는다. \
+`Coroutine2` 가 정상실행된다.
 
 
+#### CancellationException
+Job.cancel() 시 호출된다.
+```kotlin
+  @DisplayName("CancellationException thrown when job is cancelled")
+  @Test
+  fun jobCancelTest(): Unit = runBlocking {
+    val job = launch {
+      delay(10L)
+    }
 
+    job.invokeOnCompletion { exception ->
+      assertThat(exception).isInstanceOf(CancellationException::class.java)
+    }
+    
+    job.cancel()
+  }
+```
+다른 예외와 달리 **부모로는 예외를 전파하지 않는다.** \
+오로지 자식 코루틴에만 예외를 전파한다.
 
-
+`CancellationException` 이 부모로 전파되지 않는 이유는 `CancellationException` 이 코루틴을 취소하기 위한 특별한 예외이기 때문이다.
 
 
 
