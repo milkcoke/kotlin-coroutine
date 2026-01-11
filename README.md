@@ -550,6 +550,92 @@ Coroutine2 또한 실행되지 않는다.
 `Coroutine1` 의 예외가 supervisorScope 에 전파되지 않는다. \
 `Coroutine2` 가 정상실행된다.
 
+### CoroutineExceptionHandler
+
+예외를 로깅하거나, 오류 메시지를 표시하기 위해 구조화된 코루틴들에 공통적으로 예외처리기를 설정할 때 사용한다.
+
+```kotlin
+  fun commonLoggingTest() = runBlocking {
+    val exceptionHandler = CoroutineExceptionHandler { coroutineContext, exception ->
+      println("Coroutine ${coroutineContext[CoroutineName]} ${exception.message}")
+    }
+
+    CoroutineScope(Dispatchers.IO)
+      .launch(CoroutineName("Coroutine1") + exceptionHandler) {
+        // the exception handling is done in the coroutine 1
+        launch(CoroutineName("Coroutine2")) {
+          throw Exception("Coroutine2 Exception")
+        }
+      }
+
+    delay(50L)
+  }
+```
+
+`CoroutineExceptionHandler` 는 처리되지 않은 예외가 `launch` 로 시작된 코루틴 트리의 최상위에 도달했을 때 호출된다.\
+즉, `launch` 로 생성된 루트 부모코루틴에서 `CoroutineExceptionHandler` 가 작동한다.
+
+```kotlin
+  fun handleCoroutineExceptionTest() = runBlocking {
+    val exceptionHandler = CoroutineExceptionHandler { coroutineContext, exception ->
+      println("Coroutine ${coroutineContext[CoroutineName]} ${exception.message}")
+    }
+
+    val exceptionHandler2 = CoroutineExceptionHandler { coroutineContext, exception ->
+      println("Coroutine222 ${coroutineContext[CoroutineName]} ${exception.message}")
+    }
+
+    CoroutineScope(exceptionHandler)
+      .launch(CoroutineName("Coroutine1") + exceptionHandler2) {
+        launch(CoroutineName("Coroutine2")) {
+          throw Exception("Coroutine2 Exception")
+        }
+      }
+
+    delay(50L)
+  }
+
+```
+
+실행 결과
+
+```txt
+Coroutine222 CoroutineName(Coroutine1) Coroutine2 Exception
+```
+최상단 `launch` 코루틴인 Coroutine1에서 CoroutineExceptionHandler2 로 예외를 핸들링했다.
+
+
+> `async`는 예외를 `await()` 시점에 던지므로 `CoroutineExceptionHandler` 가 작동하지 않는다.
+따라서 `async` 에는 `try-catch` 구문을 사용해야 한다.
+
+```kotlin
+  fun exceptionPropagationTest(): Unit = runBlocking {
+    val exceptionHandler = CoroutineExceptionHandler { coroutineContext, exception ->
+      println("Coroutine ${coroutineContext[CoroutineName]} ${exception.message}")
+    }
+
+    CoroutineScope(Dispatchers.IO).launch(CoroutineName("Coroutine1")) {
+      launch(CoroutineName("Coroutine2") + exceptionHandler) {
+        throw Exception("Coroutine2 Exception")
+      }
+      delay(10L)
+      println("Coroutine1 executed") 
+    }
+  }
+```
+
+실행 결과
+```txt
+Exception in thread "DefaultDispatcher-worker-1 @Coroutine1#2" java.lang.Exception: Coroutine2 Exception
+```
+아무런 코루틴도 예외를 핸들링하지 못했다. \
+Coroutine2 에만 `CoroutineExceptionHandler` 가 등록되었다. \
+부모 코루틴으로 예외가 전파되면서 `CoroutineExceptionHandler` 가 작동하지 않았다.
+
+Q. 왜 이렇게 설계했을까?
+A. 코루틴의 예외는 자식에서 발생했을 때, 최대한 상위 코루틴까지 예외를 전달하여 작업을 완전히 실패하게 하기 위해서다. \
+코루틴 Job 은 자식이 완료되어야만 부모도 비로소 완료된다. 이 매커니즘을 이용하여 부모 job 이 Completed 상태라는 건, 자식 코루틴 또한 Completed 되었음을 보장하기 위해서다. 
+
 
 #### CancellationException
 Job.cancel() 시 호출된다.
