@@ -660,11 +660,85 @@ Job.cancel() 시 호출된다.
 `CancellationException` 이 부모로 전파되지 않는 이유는 `CancellationException` 이 코루틴을 취소하기 위한 특별한 예외이기 때문이다.
 
 
+## (9) 일시 중단 함수
+
+일시 중단 함수란 
+1. 일시 중단 지점을 갖는 (e.g.delay) 함수다.
+2. `suspend` 키워드로 정의한다.
+
+일시 중단 함수는 코루틴이 아니다. \
+코루틴으로 실행하고 싶다면 다음과 같이 코루틴 빌더함수로 감싸야한다.
+
+```kotlin
+fun suspendFunctionTest() = runBlocking {
+  val job1 = launch() {
+    delayAndPrint()
+  }
+  val job2= launch() {
+    delayAndPrint()
+  }
+  joinAll(job1, job2)
+  // Approximately 2000 ms elapsed.
+}
+
+suspend fun delayAndPrint() {
+  delay(1000L)
+  println("print!")
+}
+```
 
 
+### 사용 방법
+일시중단 함수는 일시중단이 가능한 곳에서만 호출 가능하다.
+- 코루틴 내부
+- 일시 중단 함수
 
+일시중단 함수는 `CoroutineScope` 에 접근 불가하기에 별도 처리 없이 코루틴 빌더함수 호출이 불가하다.
 
+`coroutineScope()`를 호출하는 함수를 정의하면 사용할 수 있다.
+```kotlin
+suspend fun searchByKeyword(keyword: String): Array<String> = coroutineScope {
+  val dbResult = async {
+    searchFromDB(keyword)
+  }
+  val serverResult = async {
+    searchFromServer(keyword)
+  }
+  return@coroutineScope arrayOf(*dbResult.await(), *serverResult.await())
+}
+```
 
+위 함수에는 취약점이 있는데, `searchFromDB`, `searchFromServer` 두 코루틴 내 하나라도 에러가 발생하면 \
+최상단 코루틴까지 에러가 전파되어 모두 취소된다는 것이다. 
 
+앞서 배운 `supervisorScope{}`로 정의하면 부분적인 결과를 반환받을 수 있다.
+
+```kotlin
+suspend fun searchByKeyword(keyword: String): Array<String> = supervisorScope {
+  launch { 
+    errorThrow() // 여기서 에러가 발생해도 다른 코루틴은 정상 실행됨.
+  }
+  val dbResult = async {
+    searchFromDB(keyword)
+  }
+  val serverResult = async {
+    searchFromServer(keyword)
+  }
+  return@coroutineScope arrayOf(*dbResult.await(), *serverResult.await())
+}
+```
+
+#### `suspend` 함수 주의할 점
+suspend 함수는 코루틴이 아니다. \
+suspend 함수를 호출할 땐, 코루틴 빌더함수로 감싸야만 코루틴이 생성된다. \
+그렇지 않으면 하나의 코루틴내에서 모든 suspend 함수가 순차호출된다.
+
+```kotlin
+fun main() = runBlocking {
+  searchFromDB(keyword)
+  searchFromServer(keyword)
+}
+```
+main 이 `runBlocking{}` 블록이라 일시중단 함수 호출은 가능하다. 그러나 `searchFromDB` -> `searchFromServer` 가 순차 실행된다.
 
 
