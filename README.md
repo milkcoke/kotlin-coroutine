@@ -290,7 +290,7 @@ ParentCoroutine, ChildCoroutine1,2 는 모두 취소되었다.
 
 `CoroutineScope.cancel` 을 살펴보자
 ```kotlin
-public fun CoroutineScope.cancel(cause: CancellationException? = null) {
+fun CoroutineScope.cancel(cause: CancellationException? = null) {
     val job = coroutineContext[Job] ?: error("Scope cannot be cancelled because it does not have a job: $this")
     job.cancel(cause)
 }
@@ -747,7 +747,7 @@ main 이 `runBlocking{}` 블록이라 일시중단 함수 호출은 가능하다
 루틴이란 곧 명령어의 집합, 프로그래밍에선 함수다. \
 루틴 내에서 다른 루틴을 호출하면 다른 루틴은 곧 서브 루틴이된다. 
 ```kotlin
-fun main {
+fun main() {
   funcA() // funcA 는 main 의 서브루틴
   funcB() // funcB 는 main 의 서브루틴
 }
@@ -758,7 +758,7 @@ main  -> funcA -> funcB -> main 으로 쓰레드를 사용한다. \
 
 이에 비해 코루틴은 동시에 여러 루틴을 실행할 수 있다.
 ```kotlin
-fun main = runBlocking {
+fun main() = runBlocking {
   launch { // coroutine#2
     funcA()
   }
@@ -822,7 +822,84 @@ Dispatcher 가 없기 때문에 위 함수는 main Thread 하나만 실행된다
 - 4 번이 실행된다.
 
 #### (3) yield 함수 
+단일 스레드만 사용하는 상황에서 명시적으로 쓰레드 양보가 필요할 때 사용된다.
 
+```kotlin
+fun main() = runBlocking {
+  val job = launch {
+    var count = 0
+    while(this.isActive) {
+      count++
+      println("current Count: $count")
+    }
+  }
+  delay(10L)
+  job.cancel()
+}
+```
+위 코드는 영원히 중단되지 않는다. \
+launch 코루틴이 영원히 실행되고, runBlocking 코루틴은 Dispatcher 에 계속 남아있는 상태가 된다.
+
+아래와 같이 yield 함수를 통해 쓰레드를 양보해줄 필요가 있다.
+```kotlin
+fun main() = runBlocking {
+  val job = launch {
+    var count = 0
+    while(this.isActive) {
+      count++
+      println("current Count: $count")
+      if (count % 10 == 0) {
+        yield() // main 쓰레드를 더 이상 점유하지 않고 양보
+      }
+    }
+  }
+  delay(10L)
+  job.cancel() // 양보받은 메인 스레드에 의해 취소 요청
+}
+```
+
+runBlocking 코루틴, launch 코루틴이 모두 정상 종료된다.
 
 > 코틀린 라이브러리 (`kotlinx-coroutines`) 에서 제공하는 API 에서 이미 쓰레드 양보 매커니즘을 알아서 제어한다.
 > 따라서 개발자가 직접 쓰레드 양보를 제어할 일은 거의 없지만, 필요한 케이스에서는 yield 함수 등을 이용하여 코루틴에 대한 쓰레드 제어권을 넘길 필요가 있다.
+
+
+#### 코루틴의 실행 스레드는 고정이 아니다
+코루틴은 실행과 재개 시점마다 Dispatcher가 실행 스레드를 결정한다.
+
+```kotlin
+fun main() = runBlocking {
+  val dispatcher = newFixedThreadPoolContext(2, "Thread")
+  launch(dispatcher) {
+    repeat(5) {
+      println("${Thread.currentThread().name} - 일시 중단")
+      delay(10L)
+      println("${Thread.currentThread().name} - 재개")
+    }
+  }
+}
+```
+
+실행 결과
+```text
+Thread-1 @coroutine#2 - 일시 중단
+Thread-1 @coroutine#2 - 재개
+Thread-1 @coroutine#2 - 일시 중단
+Thread-2 @coroutine#2 - 재개 (변경됨)
+Thread-2 @coroutine#2 - 일시 중단
+Thread-1 @coroutine#2 - 재개 (변경됨)
+Thread-1 @coroutine#2 - 일시 중단
+Thread-2 @coroutine#2 - 재개 (변경됨)
+Thread-2 @coroutine#2 - 일시 중단
+Thread-1 @coroutine#2 - 재개 (변경됨)
+```
+
+`coroutine#2` 의 실행 스레드가 Thread-1 과 Thread-2 를 왔다갔다한다. \ 
+왜 그럴까? 
+
+delay 함수로 코루틴을 일시 중단(suspend) 시키고 이 시점에 실행중이던 `coroutine#2` 는 \
+쓰레드를 양보하여 Continuation 이 Dispatcher 큐에 등록된다.\
+재개 시점에 Dispatcher 가 Dispatcher 스케줄링 정책에 따라 선택된 워커 스레드에 코루틴을 할당한다.
+
+> 코루틴이 스레드를 양보하지 않으면 실행 쓰레드는 변경되지 않는다!
+

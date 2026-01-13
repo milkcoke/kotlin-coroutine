@@ -2,8 +2,11 @@ package coroutine.yield
 
 import coroutine.support.Timer
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.newFixedThreadPoolContext
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.yield
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
 
@@ -42,5 +45,39 @@ class YieldTest {
     job.join()
     println("4. runBlocking resumes after launch coroutine")
   }
+
+  @DisplayName("yield to the runBlocking Coroutine")
+  @Test
+  fun yieldTest() = runBlocking {
+    val job = launch {
+      var count = 0
+      while (this.isActive) {
+        count++
+        println("job is running $count")
+        if (count % 100 == 0) {
+          yield()
+        }
+      }
+    }
+    delay(10L)
+    job.cancel()
+
+  }
+
+  @DisplayName("Coroutine thread can be switched after yielded")
+  @Test
+  fun coroutineThreadSwitchTest(): Unit = runBlocking {
+    val dispatcher = newFixedThreadPoolContext(2, "Thread")
+    launch(dispatcher) {
+      repeat(5) {
+        println("${Thread.currentThread().name} - 일시 중단")
+        delay(10L)
+        println("${Thread.currentThread().name} - 재개")
+      }
+    }
+
+  }
+
+
 
 }
