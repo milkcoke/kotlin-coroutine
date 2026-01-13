@@ -742,3 +742,87 @@ fun main() = runBlocking {
 main 이 `runBlocking{}` 블록이라 일시중단 함수 호출은 가능하다. 그러나 `searchFromDB` -> `searchFromServer` 가 순차 실행된다.
 
 
+## (10) 코루틴의 쓰레드 양보
+
+루틴이란 곧 명령어의 집합, 프로그래밍에선 함수다. \
+루틴 내에서 다른 루틴을 호출하면 다른 루틴은 곧 서브 루틴이된다. 
+```kotlin
+fun main {
+  funcA() // funcA 는 main 의 서브루틴
+  funcB() // funcB 는 main 의 서브루틴
+}
+```
+main 루틴은 funcA, funcB 서브루틴이 완료될 때까지 기다린다. \
+main  -> funcA -> funcB -> main 으로 쓰레드를 사용한다. \
+서브 루틴이 종료되어야만 다음 서브 루틴이 실행된다.
+
+이에 비해 코루틴은 동시에 여러 루틴을 실행할 수 있다.
+```kotlin
+fun main = runBlocking {
+  launch { // coroutine#2
+    funcA()
+  }
+  launch { // coroutine#3
+    funcB()
+  }
+}
+```
+main 코루틴은 funcA, funcB 코루틴이 완료될 때까지 기다린다. \
+그러나 funcA, funcB 코루틴은 동시에 실행된다. \
+즉, main -> funcA, funcB -> main 으로 쓰레드를 사용한다.
+
+이렇게 동시에 여러 루틴이 협력(Co)적으로 실행된다고 하여 '코루틴'이란 이름이 붙었다.
+
+코루틴은 어떻게 동시에 여러 루틴을 실행할까? \
+바로 쓰레드 '양보' 다.
+
+코루틴이 쓰레드를 양보하는 방법을 알아보자.
+#### (1) delay 함수
+```kotlin
+fun main() = runBlocking{
+  launch {
+    delay(100L)
+    println("Coroutine 1 finished")
+  }
+  launch {
+    delay(100L)
+    println("Coroutine 2 finished")
+  }
+}
+```
+
+`delay` 함수가 호출되면 코루틴은 현재 자신이 점유하는 쓰레드를 양보한다. 
+따라서 위 코루틴 1, 2는 동시에 실행된다.
+
+#### (2) join 함수
+```kotlin
+fun joinTest() = runBlocking {
+  val job = launch {
+    println("1. launch coroutine starts")
+    delay(100L)
+    println("2. launch coroutine finished")
+  }
+  println("3. runBlocking waits the launch coroutine")
+  job.join()
+  println("4. runBlocking resumes after launch coroutine")
+}
+```
+
+3 -> 1  -> 2 -> 4 순서로 출력된다. \
+Dispatcher 가 없기 때문에 위 함수는 main Thread 하나만 실행된다. \
+- runBlocking 코루틴이 launch 를 호출한다.
+- main Thread 가 runBlocking 코루틴을 여전히 실행한다.
+- 3번이 실행된다.
+- job.join() 을 호출한다.
+- runBlocking 코루틴이 main Thread 를 양보한다.
+- job 코루틴이 main Thread 를 점유한다.
+- 1,2 번이 실행된다.
+- job 코루틴이 종료된다.
+- main Thread 가 다시 runBlocking 코루틴을 점유한다.
+- 4 번이 실행된다.
+
+#### (3) yield 함수 
+
+
+> 코틀린 라이브러리 (`kotlinx-coroutines`) 에서 제공하는 API 에서 이미 쓰레드 양보 매커니즘을 알아서 제어한다.
+> 따라서 개발자가 직접 쓰레드 양보를 제어할 일은 거의 없지만, 필요한 케이스에서는 yield 함수 등을 이용하여 코루틴에 대한 쓰레드 제어권을 넘길 필요가 있다.
