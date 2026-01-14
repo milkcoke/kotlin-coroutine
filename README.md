@@ -350,7 +350,7 @@ main @coroutine#1 실행 완료
 ![Job State](./assets/JobState.png)
 
 - New: 코루틴이 생성된 상태
-- Active: 코루틴 실행중 상태
+- Active: 코루틴 실행중 상태 또는 실행 대기 상태 (쓰레드 상태 `Runnable` 과 유사)
 - Completing: 부모 코루틴 실행이 완료되고 자식 코루틴의 완료를 기다리는 상태.
 - Cancelling: 취소중 상태
 - Cancelled: 취소가 완료된 상태
@@ -1015,6 +1015,13 @@ Thread-1:
 
 
 #### 코루틴 실행 옵션
+| CoroutineStart | Description                                                                |
+|----------------|----------------------------------------------------------------------------|
+| DEFAULT        | 즉시 실행 대기 (Active) 상태에 들어가며, Dispatcher 에 의해 사용 가능한 Thread 로 코루틴을 할당 요청보낸다. |
+| LAZY           | New 상태에서 `job.start()` 호출 전까지 Active 상태가 되지 않는다.                           |
+| ATOMIC         | 코루틴이 시작 전에 취소되지 않도록 한다.                                                    |
+| UNDISPATCHED   | 코루틴을 현재 쓰레드를 점유하며 즉시 실행한다. Dispatchers 로 들어가는 과정을 생략한다.                    |
+
 #### 무제한 Dispatcher
 #### 코루틴 일시 중단 / 재개 원리
 
