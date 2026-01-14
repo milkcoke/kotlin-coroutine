@@ -903,3 +903,72 @@ delay 함수로 코루틴을 일시 중단(suspend) 시키고 이 시점에 실�
 
 > 코루틴이 스레드를 양보하지 않으면 실행 쓰레드는 변경되지 않는다!
 
+## (11) Coroutine Deeper
+#### 공유 상태를 사용하는 코루틴의 문제와 해결책
+Race condition 문제 증명
+```kotlin
+  fun raceConditionProblem(): Unit = runBlocking {
+    var count = 0
+    withContext(Dispatchers.Default) {
+      repeat(100) {
+        launch { count += 1 }
+      }
+    }
+    assertThat(count).isLessThan(100)
+  }
+```
+
+메모리 가시성 문제와 경합 발생으로 인한 Race Condition 문제가 발생했다. \
+익히 알고있는 Atomic 변수, Mutex 등을 사용하여 해결할 수 있다.
+
+```kotlin
+class SharedStateTest{
+  fun raceConditionResolveByLock(): Unit = runBlocking {
+    var count = 0
+    // kotlin mutex does not block the thread, just suspend the coroutine when lock is not available
+    val mutex = Mutex()
+    withContext(Dispatchers.Default) {
+      repeat(100) {
+        launch {
+          // lock and release lock after block execution
+          mutex.withLock { count += 1 }
+        }
+      }
+    }
+    assertThat(count).isEqualTo(100)
+  }
+}
+```
+
+Java 의 ReentrantLock 은 lock 을 획득할 때 쓰레드를 블로킹한다. \
+Kotlin 에서 제공하는 `Mutex` 는 lock 획득시 코루틴을 일시 중단(suspend) 한다.
+
+따라서 되도록 Mutex 를 사용하는게 좋다.
+
+```kotlin
+  fun raceConditionResolveBySingleThread() : Unit = runBlocking {
+    var count = 0
+    val countChangeDispatcher = Dispatchers.IO.limitedParallelism(1)
+
+    withContext(Dispatchers.Default) {
+      repeat(100) {
+        launch(countChangeDispatcher) { count += 1}
+      }
+    }
+
+    assertThat(count).isEqualTo(100)
+  }
+```
+
+Q1) 왜 `withContext` 로 감싸야 할까?
+A1) `withContext` 로 감싸지 않으면 `runBlocking{}` 코루틴이 launch 코루틴의 결과를 기다리지 않고 Fire And Forget 하기 때문이다.\
+withContext 로 감싸야 runBlocking 코루틴 -> withContext 코루틴 -> launch 코루틴 으로 이어지는 부모-자식 관계가 형성되어 자식 코루틴 실행 완료를 기다린다.
+
+Q2) 왜 `Dispatchers.IO.limitedParallelism(1)` 을 사용할까?
+A2) `Dispatchers.IO` 는 공유 스레드풀을 사용하기 때문, `newSingleThreadContext("SingleThread")` 호출시 새로운 쓰레드를 생성하고, 이는 비싼 연산이다.
+
+
+#### 코루틴 실행 옵션
+#### 무제한 Dispatcher
+#### 코루틴 일시 중단 / 재개 원리
+
