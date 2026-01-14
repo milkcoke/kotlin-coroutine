@@ -1,5 +1,6 @@
 package coroutine.sharedstate
 
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
@@ -60,11 +61,15 @@ class SharedStateTest {
   @Test
   fun raceConditionResolveBySingleThread() : Unit = runBlocking {
     var count = 0
-    val countChangeDispatcher = Dispatchers.IO.limitedParallelism(1)
-
+    val countChangeDispatcher: CoroutineDispatcher = Dispatchers.IO.limitedParallelism(1)
+    println("${Thread.currentThread().name} 실행")
     withContext(Dispatchers.Default) {
+      println("${Thread.currentThread().name} 실행")
       repeat(100) {
-        launch(countChangeDispatcher) { count += 1}
+        launch(countChangeDispatcher) {
+          count += 1
+          println("${Thread.currentThread().name} 실행완료")
+        }
       }
     }
 

@@ -945,6 +945,8 @@ Kotlin 에서 제공하는 `Mutex` 는 lock 획득시 코루틴을 일시 중단
 
 따라서 되도록 Mutex 를 사용하는게 좋다.
 
+또 하나의 솔루션은 실행 코루틴의 쓰레드를 1개로 제한하는 것이다.
+
 ```kotlin
   fun raceConditionResolveBySingleThread() : Unit = runBlocking {
     var count = 0
@@ -954,18 +956,62 @@ Kotlin 에서 제공하는 `Mutex` 는 lock 획득시 코루틴을 일시 중단
       repeat(100) {
         launch(countChangeDispatcher) { count += 1}
       }
-    }
+    } // coroutine#1 wait all launch coroutines completing
 
     assertThat(count).isEqualTo(100)
   }
 ```
+![limited single thread](./assets/withContext.png)
+Q1) 왜 `withContext` 로 감싸야 할까? \
+A1) `withContext` 로 감싸지 않으면 `runBlocking{}` 코루틴이 launch 코루틴이 끝나기도 전에 `assertThat()` 검증 구문을 실행해버린다. (100보다 낮은 값이 나와버린다.) \
+사실 쓰지 않아도 결과적으론 launch 코루틴이 `count` 값을 100이 만들 때까지 기다린다. `asserThat()` 이후가 되는게 문제일 뿐이다.
 
-Q1) 왜 `withContext` 로 감싸야 할까?
-A1) `withContext` 로 감싸지 않으면 `runBlocking{}` 코루틴이 launch 코루틴의 결과를 기다리지 않고 Fire And Forget 하기 때문이다.\
-withContext 로 감싸야 runBlocking 코루틴 -> withContext 코루틴 -> launch 코루틴 으로 이어지는 부모-자식 관계가 형성되어 자식 코루틴 실행 완료를 기다린다.
+withContext 로 감싸면 runBlocking 코루틴 -> withContext 코루틴 -> launch 코루틴 으로 이어지는 부모-자식 관계가 형성되어 \
+withContext coroutine#1 코루틴이 자식 코루틴들의 실행 완료를 기다린 후에 반환될 뿐이다. 
 
-Q2) 왜 `Dispatchers.IO.limitedParallelism(1)` 을 사용할까?
+withContext 로 감싸지 않고 joinAll() 로 묶는 방법도 있다.
+
+Q2) 왜 `Dispatchers.IO.limitedParallelism(1)` 을 사용할까? \
 A2) `Dispatchers.IO` 는 공유 스레드풀을 사용하기 때문, `newSingleThreadContext("SingleThread")` 호출시 새로운 쓰레드를 생성하고, 이는 비싼 연산이다.
+
+Q3) 어차피 스레드 1개쓰는건데 코루틴 여러개 쓰는거면, 안쓰는거랑 차이 없지 않나? \
+A3) 있다.
+
+#### 블로킹 버전
+```kotlin
+val executor = Executors.newSingleThreadExecutor()
+repeat(3) {
+  executor.submit {
+    val lastOffset = repository.read() // Blocking
+    repository.save(lastOffset) // Blocking
+  }
+}
+```
+
+쓰레드 하나가 블로킹 된 동안 쓰레드가 다른 작업을 처리할 수 없다.
+```txt
+Thread-1:
+  read() --- waiting ---- save()
+```
+
+#### 코루틴 버전
+```kotlin
+repeat(3) {
+  launch(singleThreadDispatcher) {
+    val lastOffset = repository.read() // suspend
+    repository.save(lastOffset) // suspend
+  }
+}
+```
+블로킹되지 않고 일시 중단(suspend) 되기 때문에 쓰레드가 다른 코루틴을 처리할 수 있다.
+```txt
+Thread-1:
+  coroutine#1 suspend
+  coroutine#2 suspend
+  coroutine#3 resume
+```
+
+-> 이런식으로 비동기 요청이 여러개 있을 때 진가가 드러난다.
 
 
 #### 코루틴 실행 옵션
