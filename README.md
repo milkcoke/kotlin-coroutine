@@ -1022,6 +1022,57 @@ Thread-1:
 | ATOMIC         | 코루틴이 시작 전에 취소되지 않도록 한다.                                                    |
 | UNDISPATCHED   | 코루틴을 현재 쓰레드를 점유하며 즉시 실행한다. Dispatchers 로 들어가는 과정을 생략한다.                    |
 
-#### 무제한 Dispatcher
 #### 코루틴 일시 중단 / 재개 원리
+코루틴은 일시중단/재개가 가능하다. 바로 **Continuation Passing Style** 에 의해서다.
+이어서하는 작업(Continuation) 을 전달(Passing) 하는 방식
 
+
+```kotlin
+fun main() = runBlocking {
+  println("something")
+  delay(100L)
+  println("something")
+}
+```
+대체 누가 일시중단했다가 재개하는가? \
+DefaultExecutor 가 `Continuation<T>` 를 통해 일시 중단할 때 실행 정보를 저장하고 \
+재개할 때 실행 정보를 복구하여 실행한다.
+
+```kotlin
+interface Continuation<in T> {
+  /**
+   * The context of the coroutine that corresponds to this continuation.
+   */
+  val context: CoroutineContext
+
+  /**
+   * Resumes the execution of the corresponding coroutine passing a successful or failed [result] as the
+   * return value of the last suspension point.
+   */
+  fun resumeWith(result: Result<T>)
+}
+```
+
+
+```kotlin
+internal actual object DefaultExecutor : EventLoopImplBase(), Runnable {
+  const val THREAD_NAME = "kotlinx.coroutines.DefaultExecutor"
+  // ..
+}
+```
+
+![ContinuationPassing](/assets/ContinuationPassing.png)
+
+```kotlin
+fun suspendResumeTest(): Unit = runBlocking {
+  launch(Dispatchers.Unconfined) {
+    assertThat(Thread.currentThread().name).contains("main")
+    delay(100)
+    assertThat(Thread.currentThread().name).contains("DefaultExecutor")
+  }
+}
+```
+
+첫번째 함수는 자신을 호출한 main 쓰레드에서 실행되나 \
+두번째 함수는 `DefaultExecutor` 이벤트루퍼에 의해 실행되는 점을 알 수 있다. \
+Dispatchers.Unconfied 호출시 자신을 재개시킨 스레드에서 코루틴이 실행되기 때문이다.
