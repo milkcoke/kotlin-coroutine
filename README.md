@@ -1076,3 +1076,90 @@ fun suspendResumeTest(): Unit = runBlocking {
 첫번째 함수는 자신을 호출한 main 쓰레드에서 실행되나 \
 두번째 함수는 `DefaultExecutor` 이벤트루퍼에 의해 실행되는 점을 알 수 있다. \
 Dispatchers.Unconfied 호출시 자신을 재개시킨 스레드에서 코루틴이 실행되기 때문이다.
+
+
+## (12) 코루틴 테스트
+
+`build.gradle.kts` 에 다음 라이브러리 테스트 추가
+```kotlin
+testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
+```
+
+코루틴 테스트 라이브러리는 오래걸리는 테스트 문제를 해결한다.
+
+```kotlin
+
+class CoroutineTest {
+  class RepeatAdd {
+    suspend fun add(repeatTime: Int): Int = withContext(Dispatchers.IO) {
+      var result = 0
+      repeat(repeatTime) {
+        delay(100) // 0.1초 대기
+        result += 1
+      }
+      return@withContext result
+    }
+  }
+
+  // 10초 실행
+  @Test
+  fun longTimeTest(): Unit = runBlocking {
+    val repeatAdd = RepeatAdd()
+    val result = repeatAdd.add(100)
+    assertThat(result).isEqualTo(100)
+  }
+}
+```
+
+#### `TestCoroutineScheduler`
+코루틴 테스트 라이브러리는 `TestCoroutineScheduler`로 가상시간에서 테스트를 진행하게 한다. \
+시간을 자유자재로 다룰 수 있다.
+
+실질적으로는 `TestCoroutineScheduler` 가 아니라 `runTest` 빌더함수를 사용한다.
+
+#### runTest 코루틴 빌더 함수
+`TestScope` 객체를 사용해 코루틴을 실행시키고, 코루틴 내부에서 일시 중단 함수가 실행되더라도 \
+가상 시간을 자동으로 흐르게해 실행 완료될 수 있도록 하는 코루틴 빌더 함수다. \
+빠르게 테스트를 실행하기 위한 코드다.
+```kotlin 
+  fun runTestTest2() = runTest {
+    var result = 0
+
+    delay(10000L)
+    result += 1
+    delay(10000L)
+    result += 1
+
+    assertThat(result).isEqualTo(2)
+  }
+```
+
+주의할 점은 자식 코루틴의 시간은 자동으로 흐르지 않는다는 점이다.
+자식 코루틴의 시간도 흐르게하려면 `advanceUntilIdle()` 함수를 호출해야한다.
+```kotlin
+  fun runTestDescendantTest() = runTest {
+    // given
+    var result = 0
+
+    // when
+    launch {
+      delay(1000L)
+      result += 1
+    }
+
+    // then
+    assertThat(this.currentTime).isEqualTo(0)
+    assertThat(result).isEqualTo(0)
+    advanceUntilIdle()
+    assertThat(this.currentTime).isEqualTo(1000L)
+    assertThat(result).isEqualTo(1)
+  }
+```
+
+> 실무에선 `runTest()` 를 쓰면된다.
+
+runTest 는 다음과 같이 내부에 여러 테스트용 유틸리티 클래스를 감싸고있다. \
+모두 가상시간을 조절하고 일시중단 함수를 만났을 때 시간을 즉시 흘려보내 테스트 시간을 단축하기 위한 클래스다.
+
+![CoroutineTestApiHierarchy](/assets/CoroutineTestApiHierarchypng.png)
+
