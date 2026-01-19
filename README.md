@@ -1150,11 +1150,12 @@ class CoroutineTest {
     // then
     assertThat(this.currentTime).isEqualTo(0)
     assertThat(result).isEqualTo(0)
-    advanceUntilIdle()
+    advanceUntilIdle() // 가상시간을 즉시 모든 코루틴 대기가 완료된 상태로 돌려버린다. 
     assertThat(this.currentTime).isEqualTo(1000L)
     assertThat(result).isEqualTo(1)
   }
 ```
+
 
 > 실무에선 `runTest()` 를 쓰면된다.
 
