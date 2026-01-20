@@ -1164,3 +1164,47 @@ runTest 는 다음과 같이 내부에 여러 테스트용 유틸리티 클래�
 
 ![CoroutineTestApiHierarchy](/assets/CoroutineTestApiHierarchypng.png)
 
+
+#### runTest 사용시 무한 대기 문제
+`runTest` 는 `runBlocking` 과 마찬가지로 자신을 호출한 스레드를 점유하며 \
+모든 자식 코루틴이 끝날 때까지 `Completing` 상태로 기다린다.
+
+```kotlin
+  fun runTestWaitAllDescendantsCoroutine() = runTest {
+    var result = 0
+
+    launch {
+      while (true) {
+        delay(100L)
+        result += 1
+      }
+    }
+
+    advanceTimeBy(150L)
+    assertThat(result).isEqualTo(1)
+    advanceTimeBy(100L)
+    assertThat(result).isEqualTo(2)
+  }
+```
+
+솔루션은 TestScope 객체의 `backgroundScope` 프로퍼티를 사용하는 것이다.\
+
+runTest 블록내의 코드가 실행되면 자식 코루틴의 블로킹을 기다리지 않고 취소된다.
+
+```kotlin
+  fun runTestWaitAllDescendantsCoroutine() = runTest {
+    var result = 0
+
+    backgroundScope.launch {
+      while (true) {
+        delay(100L)
+        result += 1
+      }
+    }
+
+    advanceTimeBy(150L)
+    assertThat(result).isEqualTo(1)
+    advanceTimeBy(100L)
+    assertThat(result).isEqualTo(2)
+  }
+```

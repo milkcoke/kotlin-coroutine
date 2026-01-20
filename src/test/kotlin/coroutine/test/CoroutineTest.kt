@@ -9,6 +9,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestCoroutineScheduler
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runTest
@@ -178,6 +179,25 @@ class CoroutineTest {
     advanceUntilIdle()
     assertThat(this.currentTime).isEqualTo(1000L)
     assertThat(result).isEqualTo(1)
+  }
+
+  @OptIn(ExperimentalCoroutinesApi::class)
+  @DisplayName("runTest waits for descendant coroutines to complete like runBlocking")
+  @Test
+  fun runTestWaitAllDescendantsCoroutine() = runTest {
+    var result = 0
+
+    backgroundScope.launch {
+      while (true) {
+        delay(100L)
+        result += 1
+      }
+    }
+
+    advanceTimeBy(150L)
+    assertThat(result).isEqualTo(1)
+    advanceTimeBy(100L)
+    assertThat(result).isEqualTo(2)
   }
 
 
