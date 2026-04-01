@@ -3,7 +3,7 @@ plugins {
 }
 
 group = "coroutine"
-version = "0.0.1"
+version = "0.0.2"
 
 repositories {
   mavenCentral()
@@ -17,6 +17,7 @@ dependencies {
   testImplementation("org.assertj:assertj-core:3.27.7")
   testImplementation("org.mockito.kotlin:mockito-kotlin:6.2.3")
   testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
+  testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
 tasks.test {
