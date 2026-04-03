@@ -25,11 +25,10 @@ import java.util.concurrent.atomic.AtomicInteger
  *   3. flushInFlight – flush callback 실행 중임을 표시; re-entrant flush 방지.
  */
 class LogActor(
-    scope: CoroutineScope,
-    val mailboxCapacity: Int = 64,
-    val bufferCapacity: Int = 5,
-    private val onFlush: (List<String>) -> Unit = {},
-    private val onBackpressure: (paused: Boolean) -> Unit = {},
+  scope: CoroutineScope,
+  val mailboxCapacity: Int = 64,
+  private val logBuffer: LogBuffer,
+  private val backPressureController: BackPressureController,
 ) {
     // ── Mailbox ──────────────────────────────────────────────────────────────
     // RENDEZVOUS = 0 → 호출자가 수신자와 만날 때까지 블록 (최고 강도의 백프레셔)
@@ -39,16 +38,11 @@ class LogActor(
 
     // ── AtomicBoolean 플래그들 (외부 스레드에서 안전하게 읽힘) ────────────────
     private val closing = AtomicBoolean(false)
-    private val backpressured = AtomicBoolean(false)
-    private val flushInFlight = AtomicBoolean(false)
 
     // ── AtomicInteger 카운터 ─────────────────────────────────────────────────
     // mailbox 에 쌓인 미처리 이벤트 수를 외부에서 추적하기 위한 카운터.
     // (Channel.size 는 신뢰성이 낮으므로 별도 atomic 사용 – 실제 PartitionActor 와 동일한 이유)
     val pendingCount = AtomicInteger(0)
-
-    // ── Buffer (actor coroutine 만 접근 → 동기화 불필요) ────────────────────
-    private val buffer = mutableListOf<String>()
 
     // ── Actor Job: 단 하나의 coroutine 이 mailbox 를 순차 소비 ────────────────
     private val actorJob: Job = scope.launch {
@@ -58,10 +52,9 @@ class LogActor(
                 is Command.Append -> handleAppend(command.log)
                 is Command.Flush  -> handleFlush()
             }
-            checkBackpressureRelief()
+          backPressureController.checkRelief(pendingCount.get())
         }
-        // mailbox 가 닫힌 후 남은 buffer 를 최종 flush
-        handleFlush()
+      logBuffer.flush()
     }
 
     // ── Public API ───────────────────────────────────────────────────────────
@@ -74,8 +67,8 @@ class LogActor(
         if (closing.get()) return false
         val result = mailbox.trySend(Command.Append(log))
         if (result.isSuccess) {
-            pendingCount.incrementAndGet()
-            checkBackpressureOnset()
+          pendingCount.incrementAndGet()
+          backPressureController.checkRelief(pendingCount.get())
         }
         return result.isSuccess
     }
@@ -104,56 +97,16 @@ class LogActor(
     }
 
     // ── Observable state (외부 스레드에서 안전하게 읽기) ──────────────────────
-    fun isBackpressured(): Boolean = backpressured.get()
-    fun isFlushInFlight(): Boolean = flushInFlight.get()
     fun isClosing(): Boolean = closing.get()
 
     // ── Actor 내부 핸들러 (단일 coroutine 에서만 호출됨) ─────────────────────
 
     private fun handleAppend(log: String) {
-        buffer.add(log)
-        if (buffer.size >= bufferCapacity) {
-            handleFlush()
-        }
+        logBuffer.append(log)
     }
 
     private fun handleFlush() {
-        if (buffer.isEmpty()) return
-        // compareAndSet: flush 가 이미 진행 중이면 스킵
-        // (단일 coroutine 이므로 실제 동시 실행은 없지만, 재진입 방지 패턴을 명시적으로 표현)
-        if (!flushInFlight.compareAndSet(false, true)) return
-        try {
-            val batch = buffer.toList()
-            buffer.clear()
-            onFlush(batch)
-        } finally {
-            flushInFlight.set(false)
-        }
-    }
-
-    // ── 백프레셔 on/off (append 직후, command 처리 직후 호출) ─────────────────
-
-    // mailbox 가 80% 이상 찼을 때 한번만 백프레셔 신호를 보낸다.
-    private val backpressureOnsetThreshold = (mailboxCapacity * 0.8).toInt()
-    // 20% 이하로 줄었을 때 백프레셔를 해제한다.
-    private val backpressureResumeThreshold = (mailboxCapacity * 0.2).toInt()
-
-    private fun checkBackpressureOnset() {
-        if (pendingCount.get() >= backpressureOnsetThreshold) {
-            // compareAndSet: false → true 성공 시에만 콜백 호출 (중복 호출 방지)
-            if (backpressured.compareAndSet(false, true)) {
-                onBackpressure(true)
-            }
-        }
-    }
-
-    private fun checkBackpressureRelief() {
-        if (pendingCount.get() <= backpressureResumeThreshold) {
-            // compareAndSet: true → false 성공 시에만 콜백 호출
-            if (backpressured.compareAndSet(true, false)) {
-                onBackpressure(false)
-            }
-        }
+      logBuffer.flush()
     }
 
     // ── Command (Actor 의 메시지 타입) ────────────────────────────────────────
