@@ -128,7 +128,7 @@ class LogActorTest {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 2. AtomicBoolean 스레드 안전 패턴
+    // 2. AtomicBoolean thread-safe 패턴
     // ─────────────────────────────────────────────────────────────────────────
 
     @Nested
@@ -196,7 +196,7 @@ class LogActorTest {
          *   - mailbox 가 80% 이상 차면 compareAndSet(false, true) 로 onBackpressure(true) 를 한 번 호출
          *   - mailbox 가 20% 이하로 줄면 compareAndSet(true, false) 로 onBackpressure(false) 를 한 번 호출
          *
-         * nxlog-packager PartitionActor:
+         * PartitionActor:
          *   if (backpressured.compareAndSet(false, true)) onPauseRequested(partition)
          *   if (backpressured.compareAndSet(true, false)) onResumeRequested(partition)
          */
