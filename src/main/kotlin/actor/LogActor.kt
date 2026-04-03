@@ -27,14 +27,14 @@ import java.util.concurrent.atomic.AtomicInteger
 class LogActor(
   scope: CoroutineScope,
   val mailboxCapacity: Int = 64,
-  private val logBuffer: LogBuffer,
-  private val backPressureController: BackPressureController,
+  private val buffer: Buffer<String>,
 ) {
   // ── Mailbox ──────────────────────────────────────────────────────────────
   // RENDEZVOUS = 0 → 호출자가 수신자와 만날 때까지 블록 (최고 강도의 백프레셔)
   // UNLIMITED   → 절대 블록하지 않음
   // 숫자 지정   → 가득 차면 trySend 실패 → 백프레셔 신호
   private val mailbox = Channel<Command>(mailboxCapacity)
+  private val backPressureController =  BackPressureController(mailboxCapacity)
 
   // ── AtomicBoolean 플래그들 (외부 스레드에서 안전하게 읽힘) ────────────────
   private val closing = AtomicBoolean(false)
@@ -54,7 +54,7 @@ class LogActor(
       }
       backPressureController.checkRelief(pendingCount.get())
     }
-    logBuffer.flush()
+    buffer.flush()
   }
 
   // ── Public API ───────────────────────────────────────────────────────────
@@ -82,6 +82,9 @@ class LogActor(
     return mailbox.trySend(Command.Flush).isSuccess
   }
 
+  fun isFlushInFlight(): Boolean = buffer.isFlushInFlight()
+  fun isBackPressured(): Boolean = backPressureController.isBackpressured()
+
   /**
    * Actor 를 종료한다.
    *
@@ -102,11 +105,11 @@ class LogActor(
   // ── Actor 내부 핸들러 (단일 coroutine 에서만 호출됨) ─────────────────────
 
   private fun handleAppend(log: String) {
-    logBuffer.append(log)
+    buffer.append(log)
   }
 
   private fun handleFlush() {
-    logBuffer.flush()
+    buffer.flush()
   }
 
   // ── Command (Actor 의 메시지 타입) ────────────────────────────────────────

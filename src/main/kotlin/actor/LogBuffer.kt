@@ -9,18 +9,18 @@ import java.util.concurrent.atomic.AtomicBoolean
 class LogBuffer(
   val capacity: Int = 5,
   private val onFlush: (List<String>) -> Unit = {println("${it.size} + logs are flushed")}
-) {
+): Buffer<String> {
   // Actor Pattern 을 사용하기 때문에 Concurrent* 시리즈 클래스를 사용할 필요가 없다.
   private val buffer = mutableListOf<String>()
 
   private val flushInFlight = AtomicBoolean(false)
 
-  fun append(log: String) {
+  override fun append(log: String) {
     buffer.add(log)
     if (buffer.size >= capacity) flush()
   }
 
-  fun flush() {
+  override fun flush() {
     if (buffer.isEmpty()) return
     // 이미 true 였다면 false 를 반환하여 return 된다.
     // false 였다면 -> true 로 변경하고 다음 코드로 넘어간다
@@ -39,6 +39,6 @@ class LogBuffer(
     }
   }
 
-  fun isFlushInFlight(): Boolean  = flushInFlight.get()
+  override fun isFlushInFlight(): Boolean  = flushInFlight.get()
 
 }
