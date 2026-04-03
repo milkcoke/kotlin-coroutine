@@ -69,8 +69,9 @@ class LogActor(
     if (result.isSuccess) {
       pendingCount.incrementAndGet()
       backPressureController.checkOnSet(pendingCount.get())
+      return true
     }
-    return result.isSuccess
+    return false
   }
 
   /**
