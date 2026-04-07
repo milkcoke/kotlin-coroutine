@@ -1,5 +1,6 @@
 package actor
 
+import actor.buffer.Buffer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel

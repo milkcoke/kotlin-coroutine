@@ -1,14 +1,14 @@
-package actor
+package actor.buffer
 
+import actor.flusher.Flusher
 import java.util.concurrent.atomic.AtomicBoolean
-
 
 // 현재 LogActor 는 로그를 더하고 flush() 하는 책임까지 모두 가진다.
 // SRP 원칙에 위배된다.
 // 로그 append, flush 하는 책임을 buffer 가 갖는다.
 class LogBuffer(
   val capacity: Int = 5,
-  private val onFlush: (List<String>) -> Unit = {println("${it.size} + logs are flushed")}
+  private val flusher: Flusher<String>
 ): Buffer<String> {
   // Actor Pattern 을 사용하기 때문에 Concurrent* 시리즈 클래스를 사용할 필요가 없다.
   private val buffer = mutableListOf<String>()
@@ -31,7 +31,7 @@ class LogBuffer(
       val batch = buffer.toList()
       buffer.clear()
       // onFlush Event Callback 을 실행시킨다.
-      onFlush(batch)
+      flusher.onFlush(batch)
     } finally {
       // 이러나 저러나 flush 를 시도했다면 flushInFlight 는 false 로 처리된다.
       // 그 성공 여부는 관계가 없다.

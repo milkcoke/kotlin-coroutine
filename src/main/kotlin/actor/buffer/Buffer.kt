@@ -1,4 +1,4 @@
-package actor
+package actor.buffer
 
 interface Buffer<T> {
   fun append(log: T)
