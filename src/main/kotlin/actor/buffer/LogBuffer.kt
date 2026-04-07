@@ -8,7 +8,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 // 로그 append, flush 하는 책임을 buffer 가 갖는다.
 class LogBuffer(
   val capacity: Int = 5,
-  private val flusher: Flusher<String>
+  private val flusher: Flusher<String> = Flusher {}
 ): Buffer<String> {
   // Actor Pattern 을 사용하기 때문에 Concurrent* 시리즈 클래스를 사용할 필요가 없다.
   private val buffer = mutableListOf<String>()

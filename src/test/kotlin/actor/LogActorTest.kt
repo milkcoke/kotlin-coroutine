@@ -1,5 +1,6 @@
 package actor
 
+import actor.buffer.LogBuffer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
@@ -36,11 +37,11 @@ class LogActorTest {
         @DisplayName("여러 coroutine 이 동시에 append 해도 actor 는 순차적으로 처리한다")
         fun `multiple coroutines append concurrently but actor processes sequentially`(): Unit = runBlocking {
           // given
-          val flushedLogs = CopyOnWriteArrayList<String>()
+          val logBatchCollector = CopyOnWriteArrayList<String>()
           val actor = LogActor(
             scope = this,
             mailboxCapacity = 200,
-            buffer = LogBuffer(capacity = 5) {flushedLogs.addAll(it)},
+            buffer = LogBuffer(capacity = 5) { logBatchCollector.addAll(it) },
           )
 
           // when - 10 개의 coroutine 이 동시에 append
@@ -52,8 +53,8 @@ class LogActorTest {
 
           // then - 순서는 보장되지 않지만 하나도 빠짐없이 처리됨
           // (buffer 에는 lock 없이 mutableListOf 를 사용했지만 단일 coroutine 만 접근하므로 안전)
-          assertThat(flushedLogs).hasSize(10)
-          assertThat(flushedLogs).containsExactlyInAnyOrder(
+          assertThat(logBatchCollector).hasSize(10)
+          assertThat(logBatchCollector).containsExactlyInAnyOrder(
             *(1..10).map { "log-$it" }.toTypedArray()
           )
         }
@@ -66,7 +67,7 @@ class LogActorTest {
           val actor = LogActor(
             scope = this,
             mailboxCapacity = 100,
-            buffer = LogBuffer(3) {flushedBatches.add(it)},
+            buffer = LogBuffer(3) { flushedBatches.add(it) },
           )
 
           // when - 딱 3개 (= bufferCapacity) append
@@ -88,7 +89,7 @@ class LogActorTest {
           val actor = LogActor(
             scope = this,
             mailboxCapacity = 100,
-            buffer = LogBuffer(100) {flushedBatches.add(it)},
+            buffer = LogBuffer(100) { flushedBatches.add(it) },
           )
 
           // when
@@ -115,7 +116,7 @@ class LogActorTest {
           val actor = LogActor(
             scope = this,
             mailboxCapacity = 100,
-            buffer = LogBuffer(100) {flushedLogs.addAll(it)},
+            buffer = LogBuffer(100) { flushedLogs.addAll(it) },
           )
 
           // when - close 전에 쌓아둔 항목들
@@ -150,7 +151,7 @@ class LogActorTest {
           val flushCount = AtomicInteger(0)
           val actor = LogActor(
             scope = this,
-            buffer = LogBuffer(100) { flushCount.incrementAndGet()},
+            buffer = LogBuffer(100) { flushCount.incrementAndGet() },
           )
           actor.append("log-1")
 
@@ -311,7 +312,7 @@ class LogActorTest {
             val actor = LogActor(
               scope = this,
               mailboxCapacity = 10_000,
-              buffer = LogBuffer(10_000) {batch -> safeList.addAll(batch)}
+              buffer = LogBuffer(10_000) { batch -> safeList.addAll(batch) }
             )
 
             // when - 10개 coroutine 이 동시에 append
